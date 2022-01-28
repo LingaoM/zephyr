@@ -26,6 +26,7 @@
 #include "conn_internal.h"
 #include "l2cap_internal.h"
 #include "keys.h"
+#include "smp.h"
 
 #define LE_CHAN_RTX(_w) CONTAINER_OF(_w, struct bt_l2cap_le_chan, chan.rtx_work)
 #define CHAN_RX(_w) CONTAINER_OF(_w, struct bt_l2cap_le_chan, rx_work)
@@ -2445,6 +2446,13 @@ void bt_l2cap_recv(struct bt_conn *conn, struct net_buf *buf, bool complete)
 	cid = sys_le16_to_cpu(hdr->cid);
 
 	BT_DBG("Packet for CID %u len %u", cid, buf->len);
+
+	if (!IS_ENABLED(CONFIG_BT_SMP) &&
+	    cid == BT_L2CAP_CID_SMP) {
+		(void)bt_smp_recv(conn, buf);
+		net_buf_unref(buf);
+		return;
+	}
 
 	chan = bt_l2cap_le_lookup_rx_cid(conn, cid);
 	if (!chan) {
