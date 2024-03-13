@@ -278,13 +278,23 @@ static int output_number(bt_mesh_output_action_t action, uint32_t number)
 	return 0;
 }
 
+static void work_reset_handler(struct k_work *work)
+{
+	printk("Resetting...\n");
+	bt_mesh_reset();
+}
+
+K_WORK_DELAYABLE_DEFINE(reset, work_reset_handler);
+
 static void prov_complete(uint16_t net_idx, uint16_t addr)
 {
 	board_prov_complete();
+	k_work_reschedule(&reset, K_SECONDS(1));
 }
 
 static void prov_reset(void)
 {
+	printk("The device has been reset.\n");
 	bt_mesh_prov_enable(BT_MESH_PROV_ADV | BT_MESH_PROV_GATT);
 }
 

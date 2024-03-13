@@ -239,13 +239,16 @@ static void unprovisioned_beacon(uint8_t uuid[16],
 				 bt_mesh_prov_oob_info_t oob_info,
 				 uint32_t *uri_hash)
 {
+	if (uuid[0] == 0xdd) {
 	memcpy(node_uuid, uuid, 16);
 	k_sem_give(&sem_unprov_beacon);
+	}
 }
 
 static void node_added(uint16_t idx, uint8_t uuid[16], uint16_t addr, uint8_t num_elem)
 {
 	node_addr = addr;
+	bt_mesh_cdb_node_del(bt_mesh_cdb_node_get(addr), false);
 	k_sem_give(&sem_node_added);
 }
 
@@ -352,6 +355,7 @@ static void button_init(void)
 int main(void)
 {
 	char uuid_hex_str[32 + 1];
+	bool flag = false;
 	int err;
 
 	printk("Initializing...\n");
@@ -373,7 +377,6 @@ int main(void)
 	while (1) {
 		k_sem_reset(&sem_unprov_beacon);
 		k_sem_reset(&sem_node_added);
-		bt_mesh_cdb_node_foreach(check_unconfigured, NULL);
 
 		printk("Waiting for unprovisioned beacon...\n");
 		err = k_sem_take(&sem_unprov_beacon, K_SECONDS(10));
@@ -393,15 +396,26 @@ int main(void)
 		}
 #endif
 
-		printk("Provisioning %s\n", uuid_hex_str);
-		err = bt_mesh_provision_adv(node_uuid, net_idx, 0, 0);
-		if (err < 0) {
-			printk("Provisioning failed (err %d)\n", err);
-			continue;
+		if (!flag) {
+			printk("Provisioning over PB-ADV %s\n", uuid_hex_str);
+			err = bt_mesh_provision_adv(node_uuid, net_idx, 0, 0);
+			if (err < 0) {
+				printk("Provisioning failed (err %d)\n", err);
+				continue;
+			}
+		} else {
+			printk("Provisioning over PB-GATT %s\n", uuid_hex_str);
+			err = bt_mesh_provision_gatt(node_uuid, net_idx, 0, 0);
+			if (err < 0) {
+				printk("Provisioning failed (err %d)\n", err);
+				continue;
+			}
 		}
 
+		flag = !flag;
+
 		printk("Waiting for node to be added...\n");
-		err = k_sem_take(&sem_node_added, K_SECONDS(10));
+		err = k_sem_take(&sem_node_added, K_SECONDS(60));
 		if (err == -EAGAIN) {
 			printk("Timeout waiting for node to be added\n");
 			continue;
