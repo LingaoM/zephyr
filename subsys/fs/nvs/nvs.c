@@ -441,6 +441,8 @@ static int nvs_close_ate_valid(struct nvs_fs *fs, const struct nvs_ate *entry)
 	return 1;
 }
 
+extern bool nvs_power_lose_flag;
+
 /* store an entry in flash */
 static int nvs_flash_wrt_entry(struct nvs_fs *fs, uint16_t id, const void *data,
 				size_t len)
@@ -465,6 +467,10 @@ static int nvs_flash_wrt_entry(struct nvs_fs *fs, uint16_t id, const void *data,
 	}
 #endif
 	nvs_ate_crc8_update(&entry);
+
+        if (nvs_power_lose_flag) {
+                entry.crc8 += 1;
+        }
 
 	rc = nvs_flash_ate_wrt(fs, &entry);
 

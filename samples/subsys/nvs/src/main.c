@@ -58,6 +58,9 @@ static struct nvs_fs fs;
 #define STRING_ID 4
 #define LONG_ID 5
 
+static uint8_t raw_data[4096] = { 0x00, };
+
+bool nvs_power_lose_flag;
 
 int main(void)
 {
@@ -92,151 +95,107 @@ int main(void)
 		return 0;
 	}
 
-	/* ADDRESS_ID is used to store an address, lets see if we can
-	 * read it from flash, since we don't know the size read the
-	 * maximum possible
-	 */
-	rc = nvs_read(&fs, ADDRESS_ID, &buf, sizeof(buf));
-	if (rc > 0) { /* item was found, show it */
-		printk("Id: %d, Address: %s\n", ADDRESS_ID, buf);
-	} else   {/* item was not found, add it */
-		strcpy(buf, "192.168.1.1");
-		printk("No address found, adding %s at id %d\n", buf,
-		       ADDRESS_ID);
-		(void)nvs_write(&fs, ADDRESS_ID, &buf, strlen(buf)+1);
-	}
-	/* KEY_ID is used to store a key, lets see if we can read it from flash
-	 */
-	rc = nvs_read(&fs, KEY_ID, &key, sizeof(key));
-	if (rc > 0) { /* item was found, show it */
-		printk("Id: %d, Key: ", KEY_ID);
-		for (int n = 0; n < 8; n++) {
-			printk("%x ", key[n]);
-		}
-		printk("\n");
-	} else   {/* item was not found, add it */
-		printk("No key found, adding it at id %d\n", KEY_ID);
-		key[0] = 0xFF;
-		key[1] = 0xFE;
-		key[2] = 0xFD;
-		key[3] = 0xFC;
-		key[4] = 0xFB;
-		key[5] = 0xFA;
-		key[6] = 0xF9;
-		key[7] = 0xF8;
-		(void)nvs_write(&fs, KEY_ID, &key, sizeof(key));
-	}
-	/* RBT_CNT_ID is used to store the reboot counter, lets see
-	 * if we can read it from flash
-	 */
-	rc = nvs_read(&fs, RBT_CNT_ID, &reboot_counter, sizeof(reboot_counter));
-	if (rc > 0) { /* item was found, show it */
-		printk("Id: %d, Reboot_counter: %d\n",
-			RBT_CNT_ID, reboot_counter);
-	} else   {/* item was not found, add it */
-		printk("No Reboot counter found, adding it at id %d\n",
-		       RBT_CNT_ID);
-		(void)nvs_write(&fs, RBT_CNT_ID, &reboot_counter,
-			  sizeof(reboot_counter));
-	}
-	/* STRING_ID is used to store data that will be deleted,lets see
-	 * if we can read it from flash, since we don't know the size read the
-	 * maximum possible
-	 */
-	rc = nvs_read(&fs, STRING_ID, &buf, sizeof(buf));
-	if (rc > 0) {
-		/* item was found, show it */
-		printk("Id: %d, Data: %s\n",
-			STRING_ID, buf);
-		/* remove the item if reboot_counter = 10 */
-		if (reboot_counter == 10U) {
-			(void)nvs_delete(&fs, STRING_ID);
-		}
-	} else   {
-		/* entry was not found, add it if reboot_counter = 0*/
-		if (reboot_counter == 0U) {
-			printk("Id: %d not found, adding it\n",
-			STRING_ID);
-			strcpy(buf, "DATA");
-			(void)nvs_write(&fs, STRING_ID, &buf, strlen(buf) + 1);
-		}
+        rc = nvs_clear(&fs);
+	if (rc) {
+		printk("Flash clear failed, rc=%d\n", rc);
+		return 0;
 	}
 
-	/* LONG_ID is used to store a larger dataset ,lets see if we can read
-	 * it from flash
-	 */
-	rc = nvs_read(&fs, LONG_ID, &longarray, sizeof(longarray));
-	if (rc > 0) {
-		/* item was found, show it */
-		printk("Id: %d, Longarray: ", LONG_ID);
-		for (int n = 0; n < sizeof(longarray); n++) {
-			printk("%x ", longarray[n]);
-		}
-		printk("\n");
-	} else   {
-		/* entry was not found, add it if reboot_counter = 0*/
-		if (reboot_counter == 0U) {
-			printk("Longarray not found, adding it as id %d\n",
-			       LONG_ID);
-			for (int n = 0; n < sizeof(longarray); n++) {
-				longarray[n] = n;
-			}
-			(void)nvs_write(
-				&fs, LONG_ID, &longarray, sizeof(longarray));
-		}
+/*
+ * The following write is used to simulate a power-loss scenario at the
+ * end of a 4096-byte NVS sector.
+ *
+ * Sector size: 4096 bytes
+ *
+ * Memory layout after nvs_mount:
+ *
+ *   0x0000 ┌────────────────────────────────────────┐
+ *          | Erased (unused)                        |
+ *          │ Erased (unused)                        |
+ *   0x0FF0 ├────────────────────────────────────────┤
+ *          │ ATE GC                                 │
+ *          ├────────────────────────────────────────┤
+ *          │ ATE Close                              │
+ *   0x1000 └────────────────────────────────────────┘
+ */
+	rc = nvs_mount(&fs);
+	if (rc) {
+		printk("Flash Init failed, rc=%d\n", rc);
+		return 0;
 	}
 
-	cnt = CONFIG_NVS_SAMPLE_REBOOT_COUNTDOWN;
-	while (1) {
-		k_msleep(CONFIG_NVS_SAMPLE_SLEEP_TIME);
-		if (reboot_counter < CONFIG_NVS_SAMPLE_MAX_REBOOT) {
-			if (cnt == CONFIG_NVS_SAMPLE_REBOOT_COUNTDOWN) {
-				/* print some history information about
-				 * the reboot counter
-				 * Check the counter history in flash
-				 */
-				printk("Reboot counter history: ");
-				while (1) {
-					rc = nvs_read_hist(
-						&fs, RBT_CNT_ID,
-						&reboot_counter_his,
-						sizeof(reboot_counter_his),
-						cnt_his);
-					if (rc < 0) {
-						break;
-					}
-					printk("...%d", reboot_counter_his);
-					cnt_his++;
-				}
-				if (cnt_his == 0) {
-					printk("\n Error, no Reboot counter");
-				} else {
-					printk("\nOldest reboot counter: %d",
-					       reboot_counter_his);
-				}
-				printk("\nRebooting in ");
-			}
-			printk("...%d", cnt);
-			cnt--;
-			if (cnt == 0) {
-				printk("\n");
-				reboot_counter++;
-				(void)nvs_write(
-					&fs, RBT_CNT_ID, &reboot_counter,
-					sizeof(reboot_counter));
-				if (reboot_counter == CONFIG_NVS_SAMPLE_MAX_REBOOT) {
-					printk("Doing last reboot...\n");
-				}
-				sys_reboot(0);
-			}
-		} else {
-			printk("Reboot counter reached max value.\n");
-			printk("Reset to 0 and exit test.\n");
-			reboot_counter = 0U;
-			(void)nvs_write(&fs, RBT_CNT_ID, &reboot_counter,
-			  sizeof(reboot_counter));
-			break;
-		}
+/*
+ * The following write is used to simulate a power-loss scenario at the
+ * end of a 4096-byte NVS sector.
+ *
+ * Sector size: 4096 bytes
+ *
+ * Memory layout after nvs_write(&fs, raw_data, 2048):
+ *
+ *   0x0000 ┌────────────────────────────────────────┐
+ *          | Data #1                                |
+ *   0x0800 ├────────────────────────────────────────┤
+ *          │ Erased (unused)                        │
+ *   0x0FE8 ├────────────────────────────────────────┤
+ *          │ ATE Data #1                            │
+ *   0x0FF0 ├────────────────────────────────────────┤
+ *          │ ATE GC                                 │
+ *          ├────────────────────────────────────────┤
+ *          │ ATE Close                              │
+ *   0x1000 └────────────────────────────────────────┘
+ */
+        rc = nvs_write(&fs, 1, raw_data, 2048);
+	if (rc < 0) {
+		printk("Flash write failed, rc=%d\n", rc);
+		return 0;
 	}
-	return 0;
+        
+/*
+ * Step 2: Write a second data entry that intentionally consumes
+ * almost all remaining data space, leaving room for exactly
+ * one additional ATE.
+ *
+ * Available data space before this write:
+ *   data_wra = 0x0800
+ *   ate_wra  = 0x0FE8
+ *   usable   = 0x0FE8 - 0x0800
+ *
+ * This write subtracts:
+ *   - 8 bytes for the ATE of this data entry
+ *   - 8 bytes reserved for the next (delete / close) ATE
+ *
+ * After this write:
+ *
+ *   0x0000 ┌────────────────────────────────────────┐
+ *          │ Data #1                                │
+ *   0x0800 ├────────────────────────────────────────┤
+ *          │ Data #2 (fills almost all space)       │
+ *   0x0FD8 ├────────────────────────────────────────┤
+ *          │ ATE Reserved for delete                │
+ *   0x0FE0 ├────────────────────────────────────────┤
+ *          │ ATE Data #2                            │
+ *   0x0FE8 ├────────────────────────────────────────┤
+ *          │ ATE Data #1                            │
+ *   0x0FF0 ├────────────────────────────────────────┤
+ *          │ ATE GC                                 │
+ *          ├────────────────────────────────────────┤
+ *          │ ATE Close                              │
+ *   0x1000 └────────────────────────────────────────┘
+ *
+ * The sector now has:
+ *   - No space for further data entries
+ *   - Only space left for a single ATE
+ *
+ * This sets up the power-loss scenario where the next ATE write
+ * may be interrupted, leaving an invalid ATE and no erased space
+ * between data_wra and ate_wra.
+ */
+
+	nvs_power_lose_flag = true;
+
+        rc = nvs_write(&fs, 1, raw_data, 0x0FE8 - 0x0800 - 8 - 8);
+	if (rc < 0) {
+		printk("Flash write failed, rc=%d\n", rc);
+		return 0;
+	}
 }
