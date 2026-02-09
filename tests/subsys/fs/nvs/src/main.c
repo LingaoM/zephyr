@@ -1018,4 +1018,80 @@ ZTEST_F(nvs, test_nvs_init_bad_memory_region)
 	zassert_true(err == -EDEADLK, "nvs_mount call ok, expect fail: %d", err);
 #endif
 }
+
+/*
+ * Test NVS GC data packed.
+ */
+ZTEST_F(nvs, test_nvs_gc_pack)
+{
+	struct nvs_ate data_ate, data1_ate, gc_ate, close_ate;
+	uint8_t byte8 = 0x5a;
+	int err;
+
+	close_ate.id = 0xffff;
+	close_ate.offset = 0;
+	close_ate.len = 0;
+	close_ate.part = 0xff;
+	close_ate.crc8 = crc8_ccitt(0xff, &close_ate,
+				    offsetof(struct nvs_ate, crc8));
+
+	gc_ate.id = 0xffff;
+	gc_ate.offset = 0;
+	gc_ate.len = 0;
+	gc_ate.part = 0xff;
+	gc_ate.crc8 = crc8_ccitt(0xff, &close_ate,
+				 offsetof(struct nvs_ate, crc8));
+
+	data_ate.id = 0x0001;
+	data_ate.offset = 0;
+	data_ate.len = fixture->fs.sector_size - 5 * sizeof(struct nvs_ate) - 1;
+	data_ate.part = 0xff;
+	data_ate.crc8 = crc8_ccitt(0xff, &data_ate,
+				   offsetof(struct nvs_ate, crc8));
+
+	data1_ate.id = 0x0002;
+	data1_ate.offset = data_ate.len;
+	data1_ate.len = 1;
+	data1_ate.part = 0xff;
+	data1_ate.crc8 = crc8_ccitt(0xff, &data1_ate,
+				    offsetof(struct nvs_ate, crc8));
+
+	for (int i = 0; i < data_ate.len + 1; i += sizeof(uint32_t)) {
+		uint32_t data = 0x55aa55aaU;
+
+		err = flash_write(fixture->fs.flash_device, fixture->fs.offset + i,
+				  &data, sizeof(data));
+		zassert_true(err == 0,  "flash_write failed: %d", err);
+	}
+
+	err = flash_write(fixture->fs.flash_device, fixture->fs.offset + fixture->fs.sector_size -
+			  sizeof(struct nvs_ate), &close_ate,
+			  sizeof(close_ate));
+	zassert_true(err == 0,  "flash_write failed: %d", err);
+
+	err = flash_write(fixture->fs.flash_device, fixture->fs.offset + fixture->fs.sector_size -
+			  2 * sizeof(struct nvs_ate), &gc_ate,
+			  sizeof(gc_ate));
+	zassert_true(err == 0,  "flash_write failed: %d", err);
+
+	err = flash_write(fixture->fs.flash_device, fixture->fs.offset + fixture->fs.sector_size -
+			  3 * sizeof(struct nvs_ate), &data_ate,
+			  sizeof(data_ate));
+	zassert_true(err == 0,  "flash_write failed: %d", err);
+
+	err = flash_write(fixture->fs.flash_device, fixture->fs.offset + fixture->fs.sector_size -
+			  4 * sizeof(struct nvs_ate), &data1_ate,
+			  sizeof(data1_ate));
+	zassert_true(err == 0,  "flash_write failed: %d", err);
+
+	fixture->fs.sector_count = 2;
+	err = nvs_mount(&fixture->fs);
+	zassert_true(err == 0, "nvs_mount call failure: %d", err);
+
+	err = nvs_delete(&fixture->fs, 0x0002);
+	zassert_true(err == 0, "nvs_delete failed: %d", err);
+
+	err = nvs_write(&fixture->fs, 0x0002, &byte8, sizeof(byte8));
+	zassert_true(err == sizeof(byte8), "nvs_write failed: %d", err);
+}
 #endif /* CONFIG_TEST_NVS_SIMULATOR */
