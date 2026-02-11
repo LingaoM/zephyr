@@ -55,6 +55,34 @@ struct nvs_block_move_ctx {
 	size_t buffer_pos;
 };
 
+/**
+ * @brief Description of a contiguous flash write
+ *
+ * Describes a flash write consisting of an optional header, a primary
+ * data payload, and an optional tail. All buffers are written as a
+ * single contiguous stream, respecting flash write-block alignment.
+ */
+struct nvs_flash_wrt_stream {
+	const void *head;      /**< Optional header buffer */
+	size_t head_len;       /**< Length of header buffer */
+	const void *data;      /**< Primary data buffer */
+	size_t len;            /**< Length of primary data buffer */
+	const void *tail;      /**< Optional tail buffer */
+	size_t tail_len;       /**< Length of tail buffer */
+};
+
+/**
+ * @brief NVS GC Write entry context
+ *
+ * Holds data being written during garbage collection.
+ */
+struct nvs_gc_write_entry {
+	uint16_t id;       /**< Entry ID */
+	const void *data;  /**< Pointer to data */
+	uint16_t len;      /**< Data length in bytes */
+	bool has_written;  /**< GC written flags for upper layers */
+};
+
 /* Allocation Table Entry */
 struct nvs_ate {
 	uint16_t id;	/* data id */
